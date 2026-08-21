@@ -1,0 +1,50 @@
+{
+    "name": "quillstack/queue",
+    "description": "A simple queue: messages, handlers and workers.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "queue",
+        "jobs",
+        "worker",
+        "messages",
+        "php8"
+    ],
+    "homepage": "https://quillstack.org/queue",
+    "authors": [
+        {
+            "name": "Radek Ziemniewicz",
+            "email": "radek@quillstack.org"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "psr/clock": "^1.0",
+        "psr/container": "^2.0",
+        "psr/log": "^3.0",
+        "quillstack/clock": "^0.5",
+        "quillstack/storage-interface": "^0.5"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0",
+        "quillstack/di": "^0.5",
+        "quillstack/local-storage": "^0.5",
+        "quillstack/unit-tests": "^0.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Quillstack\\Queue\\": "src/",
+            "Quillstack\\Queue\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "unit-tests",
+        "test:coverage": "phpdbg -qrr ./vendor/bin/unit-tests",
+        "stan": "phpstan analyse"
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.5.x-dev"
+        }
+    }
+}
