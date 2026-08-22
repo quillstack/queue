@@ -1,6 +1,11 @@
 # Quillstack Queue
 
 [![Tests](https://github.com/quillstack/queue/actions/workflows/tests.yml/badge.svg)](https://github.com/quillstack/queue/actions/workflows/tests.yml)
+[![Latest Version](https://img.shields.io/packagist/v/quillstack/queue.svg)](https://packagist.org/packages/quillstack/queue)
+[![Downloads](https://img.shields.io/packagist/dt/quillstack/queue.svg)](https://packagist.org/packages/quillstack/queue)
+[![PHP Version](https://img.shields.io/packagist/php-v/quillstack/queue)](https://packagist.org/packages/quillstack/queue)
+[![StyleCI](https://github.styleci.io/repos/1342206597/shield?branch=main)](https://github.styleci.io/repos/1342206597?branch=main)
+[![License](https://img.shields.io/packagist/l/quillstack/queue)](https://github.com/quillstack/queue/blob/main/LICENSE)
 
 A simple queue: messages, handlers and workers.
 
