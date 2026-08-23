@@ -10,7 +10,7 @@
         "messages",
         "php8"
     ],
-    "homepage": "https://quillstack.org/queue",
+    "homepage": "https://quillstack.org/packages/queue",
     "authors": [
         {
             "name": "Radek Ziemniewicz",
