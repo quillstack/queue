@@ -5,6 +5,7 @@
 [![Downloads](https://img.shields.io/packagist/dt/quillstack/queue.svg)](https://packagist.org/packages/quillstack/queue)
 [![PHP Version](https://img.shields.io/packagist/php-v/quillstack/queue)](https://packagist.org/packages/quillstack/queue)
 [![StyleCI](https://github.styleci.io/repos/1342206597/shield?branch=main)](https://github.styleci.io/repos/1342206597?branch=main)
+[![CodeFactor](https://www.codefactor.io/repository/github/quillstack/queue/badge)](https://www.codefactor.io/repository/github/quillstack/queue)
 [![License](https://img.shields.io/packagist/l/quillstack/queue)](https://github.com/quillstack/queue/blob/main/LICENSE)
 
 A simple queue: messages, handlers and workers.
