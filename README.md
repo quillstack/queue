@@ -6,6 +6,11 @@
 [![PHP Version](https://img.shields.io/packagist/php-v/quillstack/queue)](https://packagist.org/packages/quillstack/queue)
 [![StyleCI](https://github.styleci.io/repos/1342206597/shield?branch=main)](https://github.styleci.io/repos/1342206597?branch=main)
 [![CodeFactor](https://www.codefactor.io/repository/github/quillstack/queue/badge)](https://www.codefactor.io/repository/github/quillstack/queue)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=quillstack_queue&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=quillstack_queue)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=quillstack_queue&metric=coverage)](https://sonarcloud.io/summary/new_code?id=quillstack_queue)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=quillstack_queue&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=quillstack_queue)
+[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=quillstack_queue&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=quillstack_queue)
+[![Security](https://sonarcloud.io/api/project_badges/measure?project=quillstack_queue&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=quillstack_queue)
 [![License](https://img.shields.io/packagist/l/quillstack/queue)](https://github.com/quillstack/queue/blob/main/LICENSE)
 
 A simple queue: messages, handlers and workers.
