@@ -142,7 +142,7 @@ Postgres have it, SQLite does not, and this needs neither.
 
 It is verified the only way it can be — [six processes emptying one table at
 once](https://github.com/quillstack/queue/blob/main/tests/Unit/TestDatabaseQueue.php), asserting every message was handled exactly once. Two
-sequential `pop` calls would prove nothing, since the first deletes the row.
+sequential `pop` calls would prove nothing, since the first takes the row out of reach.
 
 `RedisQueue` keeps them in Redis instead, which needs `ext-redis`:
 
@@ -165,10 +165,37 @@ fewer thing that can be down at three in the morning is worth more than the micr
 to Redis when the queue is busy enough that the messages are worth keeping out of the database,
 or when something else already runs Redis and this can share it.
 
-**What none of them do:** a message is gone the moment a worker is handed it, so a
-worker killed mid-handling loses it. The contract here is that `pop` takes the message away, and there is no
-acknowledgement step to hold it until the handler returns. If you need a message to survive the
-worker dying, this is not yet that.
+### Saying what became of a message
+
+`pop` hands a message over and **holds** it rather than removing it. The worker then says what
+happened:
+
+```php
+$envelope = $queue->pop();
+
+$queue->ack($envelope);              // handled; the queue may forget it
+$queue->release($envelope, 30);      // not now; try again in thirty seconds
+$queue->fail($envelope, 'why');      // never; set it aside
+```
+
+`Worker` does all three for you. This matters when you drive a queue yourself.
+
+**If nothing says, the message comes back.** A worker killed between being handed a message and
+finishing it used to take the message with it, and nothing anywhere said so. Now the reservation
+runs out and the next worker finds it waiting. How long that takes is the driver's `$visibility`
+— sixty seconds unless you say otherwise:
+
+```php
+$queue = new DatabaseQueue($connection, DatabaseQueue::TABLE, null, visibility: 300);
+```
+
+Being handed a message is what counts as an attempt, not giving one back. A message which kills
+the process handling it is never given back at all, and counting only the polite failures would
+have it handed out for ever instead of eventually set aside.
+
+A worker which took longer than its reservation has had the message given to somebody else, and
+its `ack()` is refused — it returns `false` rather than throwing away work another worker is in
+the middle of.
 
 ### Topics
 

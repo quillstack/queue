@@ -41,6 +41,8 @@ class Worker
 
         try {
             $this->handle($envelope);
+            // Only now is the queue allowed to forget it.
+            $this->queue->ack($envelope);
         } catch (Throwable $throwable) {
             $this->recover($envelope, $throwable);
         }
@@ -78,7 +80,8 @@ class Worker
      */
     private function recover(Envelope $envelope, Throwable $throwable): void
     {
-        $attempts = $envelope->attempts + 1;
+        // The message was counted as attempted when the queue handed it over.
+        $attempts = $envelope->attempts;
 
         if ($throwable instanceof NoHandlerException || $attempts >= $this->tries) {
             $this->queue->fail($envelope, $throwable->getMessage());
@@ -102,7 +105,7 @@ class Worker
         $logger->error('A queued message was set aside: ' . $throwable->getMessage(), [
             'message' => $envelope->message::class,
             'id' => $envelope->id,
-            'attempts' => $envelope->attempts + 1,
+            'attempts' => $envelope->attempts,
             'exception' => $throwable::class,
         ]);
     }

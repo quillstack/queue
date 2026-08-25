@@ -27,11 +27,22 @@ class ArrayQueue implements Queue
      */
     private array $failed = [];
 
+    /**
+     * Handed out and not yet spoken for, by reservation.
+     *
+     * @var array<string, array{envelope: Envelope, until: int}>
+     */
+    private array $reserved = [];
+
     private int $pushed = 0;
 
     private ClockInterface $clock;
 
-    public function __construct(?ClockInterface $clock = null)
+    /**
+     * @param int $visibility how long a worker has to say what became of a message before the
+     *                        queue decides nobody is coming back for it
+     */
+    public function __construct(?ClockInterface $clock = null, private readonly int $visibility = self::VISIBILITY)
     {
         $this->clock = $clock ?? new SystemClock();
     }
@@ -59,6 +70,8 @@ class ArrayQueue implements Queue
      */
     public function pop(string $queue = self::DEFAULT): ?Envelope
     {
+        $this->returnAbandoned();
+
         $now = $this->now();
 
         foreach ($this->queues[$queue] ?? [] as $index => $envelope) {
@@ -68,7 +81,13 @@ class ArrayQueue implements Queue
 
             unset($this->queues[$queue][$index]);
 
-            return $envelope;
+            $reserved = $envelope->reservedAs($this->nextId());
+            $this->reserved[$reserved->reservation] = [
+                'envelope' => $reserved,
+                'until' => $now + $this->visibility,
+            ];
+
+            return $reserved;
         }
 
         return null;
@@ -77,8 +96,41 @@ class ArrayQueue implements Queue
     /**
      * {@inheritDoc}
      */
+    public function ack(Envelope $envelope): bool
+    {
+        if (!isset($this->reserved[$envelope->reservation])) {
+            return false;
+        }
+
+        unset($this->reserved[$envelope->reservation]);
+
+        return true;
+    }
+
+    /**
+     * Anything nobody spoke for goes back where it was.
+     */
+    private function returnAbandoned(): void
+    {
+        $now = $this->now();
+
+        foreach ($this->reserved as $reservation => $held) {
+            if ($held['until'] > $now) {
+                continue;
+            }
+
+            unset($this->reserved[$reservation]);
+            $this->queues[$held['envelope']->queue][] = $held['envelope'];
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function release(Envelope $envelope, null|int|DateInterval $delay = null): Envelope
     {
+        unset($this->reserved[$envelope->reservation]);
+
         $released = $envelope->retryAt(Delay::until($delay, $this->now()));
         $this->queues[$released->queue][] = $released;
 
@@ -90,6 +142,8 @@ class ArrayQueue implements Queue
      */
     public function fail(Envelope $envelope, string $reason): void
     {
+        unset($this->reserved[$envelope->reservation]);
+
         $this->failed[] = $envelope;
     }
 
@@ -98,7 +152,15 @@ class ArrayQueue implements Queue
      */
     public function size(string $queue = self::DEFAULT): int
     {
-        return count($this->queues[$queue] ?? []);
+        $reserved = 0;
+
+        foreach ($this->reserved as $held) {
+            if ($held['envelope']->queue === $queue) {
+                ++$reserved;
+            }
+        }
+
+        return count($this->queues[$queue] ?? []) + $reserved;
     }
 
     /**

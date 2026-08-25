@@ -155,6 +155,12 @@ class TestRedisQueue
         $got = array_filter([$one->pop(), $two->pop()]);
 
         $this->assertEqual->equal(1, count($got));
+
+        // Still held until whoever got it says so.
+        $this->assertEqual->equal(1, $queue->size());
+
+        $one->ack(reset($got));
+
         $this->assertEqual->equal(0, $queue->size());
     }
 
@@ -192,7 +198,8 @@ class TestRedisQueue
 
         $again = $queue->pop();
 
-        $this->assertEqual->equal(1, $again->attempts);
+        // One for the first hand-out and one for this, which release does not add to.
+        $this->assertEqual->equal(2, $again->attempts);
         $this->assertEqual->equal('retry@example.com', $again->message->email);
     }
 

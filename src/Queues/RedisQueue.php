@@ -43,10 +43,14 @@ class RedisQueue implements Queue
 
     private ClockInterface $clock;
 
+    /**
+     * @param int $visibility how long a worker has to say what became of a message
+     */
     public function __construct(
         private readonly Redis $redis,
         private readonly string $prefix = self::PREFIX,
-        ?ClockInterface $clock = null
+        ?ClockInterface $clock = null,
+        private readonly int $visibility = self::VISIBILITY
     ) {
         $this->clock = $clock ?? new SystemClock();
     }
@@ -78,10 +82,14 @@ class RedisQueue implements Queue
      * nothing here to get wrong under concurrency. What is held back is a sorted set, and a
      * message becomes due by being removed from it — whoever's `ZREM` says it removed the
      * message is the one that puts it in the list, so it lands there once.
+     *
+     * What is popped goes straight into a second sorted set, scored by when the reservation
+     * runs out, so a worker which never comes back has not taken the message with it.
      */
     public function pop(string $queue = self::DEFAULT): ?Envelope
     {
         $this->releaseDue($queue);
+        $this->returnAbandoned($queue);
 
         while (true) {
             $payload = $this->redis->rPop($this->key($queue));
@@ -92,12 +100,67 @@ class RedisQueue implements Queue
 
             $envelope = $this->unpack($payload);
 
-            if ($envelope !== null) {
-                return $envelope;
+            if ($envelope === null) {
+                // Unreadable, and already gone from the list. Try the next one.
+                continue;
             }
 
-            // Unreadable, and already gone from the list. Try the next one.
+            $reserved = $envelope->reservedAs($this->nextId());
+
+            $this->redis->zAdd(
+                $this->reservedKey($queue),
+                $this->now() + $this->visibility,
+                serialize($reserved)
+            );
+
+            return $reserved;
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function ack(Envelope $envelope): bool
+    {
+        if ($envelope->reservation === '') {
+            return false;
+        }
+
+        return $this->redis->zRem($this->reservedKey($envelope->queue), serialize($envelope)) === 1;
+    }
+
+    /**
+     * Reservations nobody spoke for go back to the list.
+     */
+    private function returnAbandoned(string $queue): void
+    {
+        $held = $this->reservedKey($queue);
+
+        $expired = $this->redis->zRangeByScore($held, '-inf', (string) $this->now(), [
+            'limit' => [0, self::DUE_AT_ONCE],
+        ]);
+
+        foreach (is_array($expired) ? $expired : [] as $payload) {
+            if (!is_string($payload)) {
+                continue;
+            }
+
+            // Whoever removes it owns putting it back, so it lands in the list once.
+            if ($this->redis->zRem($held, $payload) !== 1) {
+                continue;
+            }
+
+            $envelope = $this->unpack($payload);
+
+            if ($envelope !== null) {
+                $this->redis->lPush($this->key($queue), serialize($envelope->retryAt($envelope->availableAt)));
+            }
+        }
+    }
+
+    private function reservedKey(string $queue): string
+    {
+        return "{$this->prefix}:{$queue}:reserved";
     }
 
     /**
@@ -105,6 +168,8 @@ class RedisQueue implements Queue
      */
     public function release(Envelope $envelope, null|int|DateInterval $delay = null): Envelope
     {
+        $this->redis->zRem($this->reservedKey($envelope->queue), serialize($envelope));
+
         $now = $this->now();
         $released = $envelope->retryAt(Delay::until($delay, $now));
 
@@ -118,6 +183,7 @@ class RedisQueue implements Queue
      */
     public function fail(Envelope $envelope, string $reason): void
     {
+        $this->redis->zRem($this->reservedKey($envelope->queue), serialize($envelope));
         $this->redis->lPush($this->key(self::FAILED), serialize($envelope));
     }
 
@@ -127,9 +193,12 @@ class RedisQueue implements Queue
     public function size(string $queue = self::DEFAULT): int
     {
         $waiting = $this->redis->lLen($this->key($queue));
-        $held = $this->redis->zCard($this->delayedKey($queue));
+        $delayed = $this->redis->zCard($this->delayedKey($queue));
+        $reserved = $this->redis->zCard($this->reservedKey($queue));
 
-        return (is_int($waiting) ? $waiting : 0) + (is_int($held) ? $held : 0);
+        return (is_int($waiting) ? $waiting : 0)
+            + (is_int($delayed) ? $delayed : 0)
+            + (is_int($reserved) ? $reserved : 0);
     }
 
     /**

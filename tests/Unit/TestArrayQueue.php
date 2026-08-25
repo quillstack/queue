@@ -35,7 +35,16 @@ class TestArrayQueue
 
         $this->assertEqual->equal('radek@quillstack.com', $envelope->message->email);
         $this->assertEqual->equal(Queue::DEFAULT, $envelope->queue);
-        $this->assertEqual->equal(0, $envelope->attempts);
+
+        // Handing it over is the attempt, so it is counted here rather than when somebody
+        // gives it back — a message which kills the worker is never given back at all.
+        $this->assertEqual->equal(1, $envelope->attempts);
+
+        // Still the queue's business until somebody says what became of it.
+        $this->assertEqual->equal(1, $this->queue->size());
+
+        $this->queue->ack($envelope);
+
         $this->assertEqual->equal(0, $this->queue->size());
     }
 
@@ -99,8 +108,12 @@ class TestArrayQueue
 
     public function amessagePutBackIsCountedAsTried()
     {
-        $envelope = $this->queue->push(new SendWelcomeEmail('again@example.com'));
-        $this->queue->pop();
+        $this->queue->push(new SendWelcomeEmail('again@example.com'));
+
+        $envelope = $this->queue->pop();
+
+        // Counted when it was handed over, not when it is given back.
+        $this->assertEqual->equal(1, $envelope->attempts);
 
         $released = $this->queue->release($envelope, 30);
 
@@ -108,13 +121,13 @@ class TestArrayQueue
         $this->assertNull->isNull($this->queue->pop());
 
         $this->clock->sleep(30);
-        $this->assertEqual->equal(1, $this->queue->pop()->attempts);
+        $this->assertEqual->equal(2, $this->queue->pop()->attempts);
     }
 
     public function whatIsSetAsideIsKeptApart()
     {
-        $envelope = $this->queue->push(new SendWelcomeEmail('lost@example.com'));
-        $this->queue->pop();
+        $this->queue->push(new SendWelcomeEmail('lost@example.com'));
+        $envelope = $this->queue->pop();
 
         $this->queue->fail($envelope, 'nothing handles it');
 

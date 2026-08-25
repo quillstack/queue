@@ -34,10 +34,14 @@ class DatabaseQueue implements Queue
 
     private ClockInterface $clock;
 
+    /**
+     * @param int $visibility how long a worker has to say what became of a message
+     */
     public function __construct(
         private readonly Connection $connection,
         private readonly string $table = self::TABLE,
-        ?ClockInterface $clock = null
+        ?ClockInterface $clock = null,
+        private readonly int $visibility = self::VISIBILITY
     ) {
         $this->clock = $clock ?? new SystemClock();
     }
@@ -63,21 +67,26 @@ class DatabaseQueue implements Queue
     /**
      * {@inheritDoc}
      *
-     * The claim is the `DELETE` itself, and the message is handed over only to whoever it
-     * says removed the row. One statement, so there is no window between deciding and taking:
-     * exactly one worker can delete a given row, on every engine, and `SELECT … FOR UPDATE
-     * SKIP LOCKED` is not needed to say so — which matters, because SQLite does not have it.
+     * The claim is an `UPDATE` guarded by `reserved_at IS NULL`, and the message is handed
+     * over only to whoever the database says changed the row. One statement, so there is no
+     * window between deciding and taking, and `SELECT … FOR UPDATE SKIP LOCKED` is not needed
+     * to say so — which matters, because SQLite does not have it.
+     *
+     * The row stays. That is the difference between a message a dead worker took with it and
+     * one that comes back when the reservation runs out.
      *
      * A worker that loses the race moves to the next candidate rather than waiting.
      */
     public function pop(string $queue = self::DEFAULT): ?Envelope
     {
+        $this->returnAbandoned();
+
         $now = $this->now();
         $name = $this->quoted();
 
         $rows = $this->connection->select(
             "SELECT id, payload FROM {$name}"
-            . ' WHERE queue = :queue AND available_at <= :now'
+            . ' WHERE queue = :queue AND reserved_at IS NULL AND available_at <= :now'
             . ' ORDER BY available_at ASC, created_at ASC, id ASC',
             ['queue' => $queue, 'now' => $now]
         );
@@ -92,8 +101,22 @@ class DatabaseQueue implements Queue
                 continue;
             }
 
-            if ($this->claim($id)) {
-                return $envelope;
+            $reserved = $envelope->reservedAs($this->nextId());
+
+            $claimed = $this->connection->execute(
+                "UPDATE {$name} SET reserved_at = :now, token = :token, attempts = :attempts,"
+                . ' payload = :payload WHERE id = :id AND reserved_at IS NULL',
+                [
+                    'now' => $now,
+                    'token' => $reserved->reservation,
+                    'attempts' => $reserved->attempts,
+                    'payload' => serialize($reserved),
+                    'id' => $id,
+                ]
+            );
+
+            if ($claimed === 1) {
+                return $reserved;
             }
         }
 
@@ -103,12 +126,57 @@ class DatabaseQueue implements Queue
     /**
      * {@inheritDoc}
      */
+    public function ack(Envelope $envelope): bool
+    {
+        if ($envelope->reservation === '') {
+            return false;
+        }
+
+        $removed = $this->connection->execute(
+            'DELETE FROM ' . $this->quoted() . ' WHERE id = :id AND token = :token',
+            ['id' => $envelope->id, 'token' => $envelope->reservation]
+        );
+
+        return $removed === 1;
+    }
+
+    /**
+     * Rows nobody spoke for become waiting messages again.
+     */
+    private function returnAbandoned(): void
+    {
+        $this->connection->execute(
+            'UPDATE ' . $this->quoted() . ' SET reserved_at = NULL, token = NULL'
+            . ' WHERE reserved_at IS NOT NULL AND reserved_at <= :expired',
+            ['expired' => $this->now() - $this->visibility]
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function release(Envelope $envelope, null|int|DateInterval $delay = null): Envelope
     {
+        $this->deleteReservation($envelope);
+
         $released = $envelope->retryAt(Delay::until($delay, $this->now()));
         $this->insert($released, $released->queue);
 
         return $released;
+    }
+
+    private function deleteReservation(Envelope $envelope): void
+    {
+        if ($envelope->reservation === '') {
+            $this->deleteById($envelope->id);
+
+            return;
+        }
+
+        $this->connection->execute(
+            'DELETE FROM ' . $this->quoted() . ' WHERE id = :id AND token = :token',
+            ['id' => $envelope->id, 'token' => $envelope->reservation]
+        );
     }
 
     /**
@@ -116,6 +184,7 @@ class DatabaseQueue implements Queue
      */
     public function fail(Envelope $envelope, string $reason): void
     {
+        $this->deleteReservation($envelope);
         $this->insert($envelope, self::FAILED, $reason);
     }
 
@@ -177,6 +246,8 @@ class DatabaseQueue implements Queue
             . ' attempts INTEGER NOT NULL DEFAULT 0,'
             . ' available_at BIGINT NOT NULL,'
             . ' created_at BIGINT NOT NULL,'
+            . ' reserved_at BIGINT DEFAULT NULL,'
+            . ' token VARCHAR(32) DEFAULT NULL,'
             . ' reason TEXT DEFAULT NULL,'
             . " PRIMARY KEY (id){$index})"
         );
@@ -193,8 +264,8 @@ class DatabaseQueue implements Queue
     {
         $this->connection->execute(
             'INSERT INTO ' . $this->quoted()
-            . ' (id, queue, payload, attempts, available_at, created_at, reason)'
-            . ' VALUES (:id, :queue, :payload, :attempts, :available_at, :created_at, :reason)',
+            . ' (id, queue, payload, attempts, available_at, created_at, reserved_at, token, reason)'
+            . ' VALUES (:id, :queue, :payload, :attempts, :available_at, :created_at, NULL, NULL, :reason)',
             [
                 // A released message keeps its id, and the row it came from is gone, so
                 // there is nothing for it to collide with.
@@ -207,14 +278,6 @@ class DatabaseQueue implements Queue
                 'reason' => $reason,
             ]
         );
-    }
-
-    /**
-     * Takes the row away, and says whether this was the caller that took it.
-     */
-    private function claim(string $id): bool
-    {
-        return $this->deleteById($id) === 1;
     }
 
     private function deleteById(string $id): int

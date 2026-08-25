@@ -101,8 +101,8 @@ class TestFileQueue
 
     public function whatIsSetAsideIsKeptApart()
     {
-        $envelope = $this->queue->push(new SendWelcomeEmail('lost@example.com'));
-        $this->queue->pop();
+        $this->queue->push(new SendWelcomeEmail('lost@example.com'));
+        $envelope = $this->queue->pop();
 
         $this->queue->fail($envelope, 'nothing handles it');
 

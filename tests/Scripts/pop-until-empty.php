@@ -30,4 +30,8 @@ while ($empty < 3) {
 
     $empty = 0;
     echo $envelope->message->email, "\n";
+
+    // A worker says what became of the message; without it the queue rightly hands it
+    // back out once the reservation runs out.
+    $queue->ack($envelope);
 }
