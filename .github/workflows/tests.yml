@@ -42,7 +42,8 @@ jobs:
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
       - name: There is a Redis to test against
-        run: php -r 'exit((new Redis())->connect("127.0.0.1", 6379) ? 0 : 1);'
+        run: |
+          php -r 'exit((new Redis())->connect("127.0.0.1", 6379) ? 0 : 1);'
 
       - name: Unit tests
         run: vendor/bin/unit-tests
