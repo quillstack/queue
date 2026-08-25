@@ -15,7 +15,7 @@ use Quillstack\Queue\Tests\Mocks\Mailbox;
 use Quillstack\Queue\Tests\Mocks\RecordWelcomeHandler;
 use Quillstack\Queue\Tests\Mocks\SendWelcomeEmail;
 use Quillstack\Queue\Tests\Mocks\SendWelcomeEmailHandler;
-use Quillstack\Queue\Topic;
+use Quillstack\Queue\Topics\QueueTopic;
 use Quillstack\Queue\Worker;
 use Quillstack\UnitTests\AssertEqual;
 use Quillstack\UnitTests\AssertExceptions;
@@ -26,7 +26,7 @@ class TestTopic
     private FrozenClock $clock;
     private ArrayQueue $queue;
     private Subscriptions $subscriptions;
-    private Topic $topic;
+    private QueueTopic $topic;
     private HandlerRegistry $handlers;
     private Container $container;
     private Mailbox $mailbox;
@@ -40,7 +40,7 @@ class TestTopic
         $this->clock = new FrozenClock();
         $this->queue = new ArrayQueue($this->clock);
         $this->subscriptions = new Subscriptions();
-        $this->topic = new Topic($this->queue, $this->subscriptions);
+        $this->topic = new QueueTopic($this->queue, $this->subscriptions);
         $this->handlers = new HandlerRegistry();
         $this->mailbox = new Mailbox();
         $this->ledger = new Ledger();
@@ -61,9 +61,10 @@ class TestTopic
             ->subscribe('welcome', 'welcome.email')
             ->subscribe('welcome', 'welcome.ledger');
 
-        $published = $this->topic->publish(new SendWelcomeEmail('radek@quillstack.com'), 'welcome');
+        $this->topic->publish(new SendWelcomeEmail('radek@quillstack.com'), 'welcome');
 
-        $this->assertEqual->equal(2, count($published));
+        // Asked of the queues rather than of the publisher, which is the point: a publisher
+        // does not know who is listening.
         $this->assertEqual->equal(1, $this->queue->size('welcome.email'));
         $this->assertEqual->equal(1, $this->queue->size('welcome.ledger'));
     }
@@ -131,9 +132,8 @@ class TestTopic
             ->subscribe('welcome', 'welcome.email')
             ->subscribe('welcome', 'welcome.email');
 
-        $published = $this->topic->publish(new SendWelcomeEmail('radek@quillstack.com'), 'welcome');
+        $this->topic->publish(new SendWelcomeEmail('radek@quillstack.com'), 'welcome');
 
-        $this->assertEqual->equal(1, count($published));
         $this->assertEqual->equal(1, $this->queue->size('welcome.email'));
     }
 

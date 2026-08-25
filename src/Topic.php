@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Quillstack\Queue;
 
 use DateInterval;
+use Quillstack\Queue\Exceptions\UnknownTopicException;
 
 /**
  * Publishing one message to everything that subscribed.
@@ -15,35 +16,22 @@ use DateInterval;
  * send, a figure to record and a warehouse to tell, and none of the three should be able to
  * stop the other two.
  *
- * Each subscriber gets a message of its own on a queue of its own, so a receipt that will not
- * send is retried and eventually set aside without the warehouse ever hearing about it.
+ * How the fan-out happens is the implementation's business. `Topics\QueueTopic` does it by
+ * putting a message on each subscriber's queue; a broker which fans out on its own is told
+ * once and does the rest.
  */
-class Topic
+interface Topic
 {
-    public function __construct(
-        private readonly Queue $queue,
-        private readonly Subscriptions $subscriptions
-    ) {
-        //
-    }
-
     /**
-     * Puts the message on every subscriber's queue, and gives back what was put where.
+     * Publishes the message to everything that subscribed to the topic.
      *
-     * This is one push per subscriber rather than one atomic act. Where that matters — where
-     * two subscribers must both hear or neither — `DatabaseQueue` is backed by a connection
-     * which has transactions, and the publish can be wrapped in one.
+     * Nothing comes back. The point of a topic is that the publisher does not know who is
+     * listening, and handing back a receipt for each subscriber would tell it exactly that —
+     * which a broker doing its own fan-out could not do anyway. What was published is a
+     * question for the queues, which can be asked with `size()`.
      *
-     * @return Envelope[]
+     * @throws UnknownTopicException where nothing subscribes to the topic, because a
+     *                               misspelled one doing nothing quietly is found weeks later
      */
-    public function publish(object $message, string $topic, null|int|DateInterval $delay = null): array
-    {
-        $published = [];
-
-        foreach ($this->subscriptions->queuesFor($topic) as $queue) {
-            $published[] = $this->queue->push($message, $queue, $delay);
-        }
-
-        return $published;
-    }
+    public function publish(object $message, string $topic, null|int|DateInterval $delay = null): void;
 }

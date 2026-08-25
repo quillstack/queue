@@ -205,22 +205,30 @@ happening means several unrelated things should follow:
 
 ```php
 use Quillstack\Queue\Subscriptions;
-use Quillstack\Queue\Topic;
+use Quillstack\Queue\Topics\QueueTopic;
 
 $subscriptions = (new Subscriptions())
     ->subscribe('orders', 'orders.email')
     ->subscribe('orders', 'orders.ledger')
     ->subscribe('orders', 'orders.warehouse');
 
-$topic = new Topic($queue, $subscriptions);
+$topic = new QueueTopic($queue, $subscriptions);
 
 $topic->publish(new OrderPlaced($id), 'orders');
 ```
 
+`Topic` is the interface and `QueueTopic` is the way to be one out of a queue — one message per
+subscriber. A broker which fans out on its own is told once and does the rest, which is the same
+idea and not the same work, so it is a different implementation rather than a special case.
+
+Nothing comes back from `publish()`. A publisher does not know who is listening — that is what a
+topic is for — and handing it a receipt per subscriber would tell it exactly that. What was
+published is a question for the queues.
+
 A subscriber is a queue, so there is nothing new to run: three ordinary workers, with the
-ordinary retries, delays and dead letters. `Topic` is written against the interface rather than
-against any driver, so it works over an array, a directory, a table or Redis without changing a
-line.
+ordinary retries, delays and dead letters. `QueueTopic` is written against the `Queue` interface
+rather than against any driver, so it works over an array, a directory, a table or Redis without
+changing a line.
 
 ```shell
 ./bin/quill queue:work orders.email
