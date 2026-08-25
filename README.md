@@ -122,9 +122,36 @@ $queue = new FileQueue(new LocalStorage(), __DIR__ . '/var/queue');
 The file is taken away before the message is handed over, so two workers reading the same
 directory cannot both be given it.
 
+`DatabaseQueue` keeps them in a table, so a worker on **another machine** picks them up. A
+directory is one machine; an API behind a load balancer is not, and it already has a database:
+
+```php
+use Quillstack\Db\Connection;
+use Quillstack\Queue\Queues\DatabaseQueue;
+
+$queue = new DatabaseQueue(new Connection('pgsql:host=localhost;dbname=app', 'app', $password));
+$queue->migrate();   // creates the table if it is not there; safe to run on every deploy
+```
+
+`quillstack/db` is not required by this package — install it if you want this driver.
+
+The claim is the `DELETE` itself, and the message is handed over only to whichever worker the
+database says removed the row. One statement, so there is no moment between deciding to take a
+message and taking it. That is why there is no `SELECT … FOR UPDATE SKIP LOCKED` here: MySQL and
+Postgres have it, SQLite does not, and this needs neither.
+
+It is verified the only way it can be — [six processes emptying one table at
+once](tests/Unit/TestDatabaseQueue.php), asserting every message was handled exactly once. Two
+sequential `pop` calls would prove nothing, since the first deletes the row.
+
+**What it does not do:** a message is gone from the table the moment a worker is handed it, so a
+worker killed mid-handling loses it. That is true of `FileQueue` too — the contract here is that
+`pop` takes the message away, and there is no acknowledgement step to hold it until the handler
+returns. If you need a message to survive the worker dying, this is not yet that.
+
 ### Time
 
-Both take a PSR-20 clock, which decides when a message is due. Without one they read the
+All three take a PSR-20 clock, which decides when a message is due. Without one they read the
 wall clock. `Quillstack\Clock\FrozenClock` stands still until it is moved, so a test can
 watch a delay pass without waiting for it.
 
@@ -152,10 +179,13 @@ matter, and says so.
 What matters is what each reaches. `symfony/messenger` has transports for AMQP, Redis, Doctrine,
 Amazon SQS, Beanstalkd and more, message serialization across processes, routing rules, retry
 strategies you can replace, failure transports, and a middleware stack around handling. This has
-an array, a directory of files, and a worker.
+an array, a directory of files, a database table, and a worker.
 
-If your messages leave this machine, use Messenger. If they need to survive a restart and be
-picked up by a worker on the same box, this is a great deal less to understand.
+The database table is the one that matters for an API with more than one instance, and it needs
+no infrastructure that is not already there. Reach for Messenger when you want a broker —
+AMQP's routing, SQS's durability, a transport this does not have — or when a message must
+survive the worker that was handling it being killed. Reach for this when a table is enough,
+and there is a great deal less to understand.
 
 ## Tests
 
