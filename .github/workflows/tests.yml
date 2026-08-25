@@ -15,24 +15,57 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4']
+
+    # The Redis tests skip themselves where there is nothing to talk to, which keeps the suite
+    # runnable on a machine without one — and would quietly test nothing here. So here there
+    # is one.
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: ${{ matrix.php }}
+          extensions: redis
           coverage: none
 
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
+      - name: There is a Redis to test against
+        run: php -r 'exit((new Redis())->connect("127.0.0.1", 6379) ? 0 : 1);'
+
       - name: Unit tests
         run: vendor/bin/unit-tests
+        env:
+          REDIS_URL: tcp://127.0.0.1:6379
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,12 +74,15 @@ jobs:
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.3'
+          extensions: redis
           coverage: none
 
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
       - name: Unit tests with coverage
         run: phpdbg -qrr vendor/bin/unit-tests
+        env:
+          REDIS_URL: tcp://127.0.0.1:6379
 
       # Only where the token is there, so a fork or a repository without it still passes.
       - name: SonarCloud
@@ -66,6 +102,8 @@ jobs:
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.3'
+          # Without it there is no Redis class, and RedisQueue is a file full of unknown types.
+          extensions: redis
           coverage: none
 
       - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0

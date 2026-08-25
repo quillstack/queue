@@ -49,6 +49,7 @@
         }
     },
     "suggest": {
+        "ext-redis": "To keep the messages in Redis, for a queue busy enough that they are worth keeping out of the database (RedisQueue).",
         "quillstack/db": "To keep the messages in a database, so a worker on another machine can pick them up (DatabaseQueue)."
     }
 }

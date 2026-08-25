@@ -144,10 +144,31 @@ It is verified the only way it can be — [six processes emptying one table at
 once](https://github.com/quillstack/queue/blob/main/tests/Unit/TestDatabaseQueue.php), asserting every message was handled exactly once. Two
 sequential `pop` calls would prove nothing, since the first deletes the row.
 
-**What it does not do:** a message is gone from the table the moment a worker is handed it, so a
-worker killed mid-handling loses it. That is true of `FileQueue` too — the contract here is that
-`pop` takes the message away, and there is no acknowledgement step to hold it until the handler
-returns. If you need a message to survive the worker dying, this is not yet that.
+`RedisQueue` keeps them in Redis instead, which needs `ext-redis`:
+
+```php
+use Quillstack\Queue\Queues\RedisQueue;
+
+$redis = new Redis();
+$redis->connect('127.0.0.1', 6379);
+
+$queue = new RedisQueue($redis);
+```
+
+There is nothing to create: a list per queue, a sorted set per queue for what is held back, and
+`RPOP` hands a message to one client and nobody else. Verified the same way as the table —
+[six processes emptying one queue at
+once](https://github.com/quillstack/queue/blob/main/tests/Unit/TestRedisQueue.php).
+
+**Start with the table.** It needs no infrastructure an API does not already have, and one
+fewer thing that can be down at three in the morning is worth more than the microseconds. Move
+to Redis when the queue is busy enough that the messages are worth keeping out of the database,
+or when something else already runs Redis and this can share it.
+
+**What none of them do:** a message is gone the moment a worker is handed it, so a
+worker killed mid-handling loses it. The contract here is that `pop` takes the message away, and there is no
+acknowledgement step to hold it until the handler returns. If you need a message to survive the
+worker dying, this is not yet that.
 
 ### Topics
 
@@ -170,7 +191,9 @@ $topic->publish(new OrderPlaced($id), 'orders');
 ```
 
 A subscriber is a queue, so there is nothing new to run: three ordinary workers, with the
-ordinary retries, delays and dead letters.
+ordinary retries, delays and dead letters. `Topic` is written against the interface rather than
+against any driver, so it works over an array, a directory, a table or Redis without changing a
+line.
 
 ```shell
 ./bin/quill queue:work orders.email
@@ -245,6 +268,25 @@ median of five, and PHP is 8.5.7.
 row written to a database, a message sent to Redis, an HTTP call to SQS — and that is three or
 four orders of magnitude more than either number here. This table measures the part that does not
 matter, and says so.
+
+Here is the part that does. A thousand messages pushed and popped through each driver, everything
+on one machine, median of five:
+
+| Driver | Per push and pop | |
+| --- | --- | --- |
+| `ArrayQueue` | 3.1 µs | never leaves the process |
+| `RedisQueue` | 271 µs | a few round trips to Redis |
+| `DatabaseQueue` | 769 µs | SQLite, committing each statement |
+| `FileQueue` | 1180 µs | a file written, a directory read |
+
+Read these as the shape of the thing rather than as numbers to quote. Redis and the database
+were both local here; across a network the round trips are what you will be paying for, and the
+ordering between those two can change with the hardware underneath. What does not change is the
+first line: keeping messages inside the process costs nothing and survives nothing.
+
+`FileQueue` is last because its `pop` reads the directory to find what is due, so it gets slower
+as messages pile up. That is a fine trade for a queue which is usually empty and a poor one for
+a queue which is not.
 
 What matters is what each reaches. `symfony/messenger` has transports for AMQP, Redis, Doctrine,
 Amazon SQS, Beanstalkd and more, message serialization across processes, routing rules, retry
