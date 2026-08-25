@@ -65,7 +65,7 @@ class Worker
 
     private function handle(Envelope $envelope): void
     {
-        $handlerClass = $this->handlers->handlerFor($envelope->message, $envelope->queue);
+        $handlerClass = $this->handlers->handlerForQueue($envelope->message, $envelope->queue);
 
         /** @var Handler $handler */
         $handler = $this->container->get($handlerClass);

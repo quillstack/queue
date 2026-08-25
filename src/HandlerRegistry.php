@@ -55,28 +55,51 @@ class HandlerRegistry
      * The handler for a message, looked up by its class and then by anything it extends or
      * implements, so one handler can answer a whole family of messages.
      *
-     * What is registered for the queue the message arrived on wins over what is registered
-     * for the message everywhere, so a subscriber can do its own thing without stopping
-     * anything else from having a default.
+     * @return class-string<Handler>
+     */
+    public function handlerFor(object $message): string
+    {
+        return $this->lookUp($message, $this->handlers, $message::class);
+    }
+
+    /**
+     * The handler for a message which arrived on a particular queue.
+     *
+     * What is registered for that queue wins over what is registered for the message
+     * everywhere, so a subscriber to a topic can do its own thing without stopping anything
+     * else from having a default.
+     *
+     * This is a second method rather than an argument on the first because `handlerFor` is
+     * overridable, and adding an argument to it would be a fatal error in anything which had
+     * overridden it — for a package this many others depend on, that is not worth an
+     * argument's worth of tidiness.
      *
      * @return class-string<Handler>
      */
-    public function handlerFor(object $message, ?string $queue = null): string
+    public function handlerForQueue(object $message, string $queue): string
     {
-        $searched = $queue === null ? [] : [$this->onQueue[$queue] ?? []];
-        $searched[] = $this->handlers;
+        $handlers = ($this->onQueue[$queue] ?? []) + $this->handlers;
 
-        foreach ($searched as $handlers) {
-            foreach ($handlers as $messageClass => $handlerClass) {
-                if ($message instanceof $messageClass) {
-                    return $handlerClass;
-                }
+        return $this->lookUp($message, $handlers, $message::class . " on the {$queue} queue");
+    }
+
+    /**
+     * Looked up by class and then by anything it extends or implements, so one handler can
+     * answer a whole family of messages.
+     *
+     * @param array<class-string, class-string<Handler>> $handlers
+     *
+     * @return class-string<Handler>
+     */
+    private function lookUp(object $message, array $handlers, string $describe): string
+    {
+        foreach ($handlers as $messageClass => $handlerClass) {
+            if ($message instanceof $messageClass) {
+                return $handlerClass;
             }
         }
 
-        throw new NoHandlerException(
-            'Nothing handles ' . $message::class . ($queue === null ? '' : " on the {$queue} queue")
-        );
+        throw new NoHandlerException('Nothing handles ' . $describe);
     }
 
     /**

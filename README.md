@@ -191,7 +191,9 @@ $handlers
 ```
 
 `handle()` still registers a handler for a message everywhere; `handleOn()` wins over it on
-that one queue.
+that one queue. Both are read by `handlerForQueue()`, which is what the worker asks —
+`handlerFor()` is unchanged and still answers for a message without regard to where it came
+from.
 
 Publishing to a topic nobody subscribes to is refused:
 
