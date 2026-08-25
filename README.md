@@ -149,6 +149,74 @@ worker killed mid-handling loses it. That is true of `FileQueue` too — the con
 `pop` takes the message away, and there is no acknowledgement step to hold it until the handler
 returns. If you need a message to survive the worker dying, this is not yet that.
 
+### Topics
+
+A queue hands a message to exactly one worker, which is what you want for work that must happen
+once. A topic hands it to everything that subscribed, which is what you want when one thing
+happening means several unrelated things should follow:
+
+```php
+use Quillstack\Queue\Subscriptions;
+use Quillstack\Queue\Topic;
+
+$subscriptions = (new Subscriptions())
+    ->subscribe('orders', 'orders.email')
+    ->subscribe('orders', 'orders.ledger')
+    ->subscribe('orders', 'orders.warehouse');
+
+$topic = new Topic($queue, $subscriptions);
+
+$topic->publish(new OrderPlaced($id), 'orders');
+```
+
+A subscriber is a queue, so there is nothing new to run: three ordinary workers, with the
+ordinary retries, delays and dead letters.
+
+```shell
+./bin/quill queue:work orders.email
+./bin/quill queue:work orders.ledger
+./bin/quill queue:work orders.warehouse
+```
+
+Each subscriber gets a message of its own. That is the whole point — a receipt that will not
+send is retried and eventually set aside without the warehouse ever hearing about it.
+
+Subscribers do different things with the same message, so handlers can be registered against
+the queue rather than against the message:
+
+```php
+$handlers
+    ->handleOn('orders.email', OrderPlaced::class, SendReceipt::class)
+    ->handleOn('orders.ledger', OrderPlaced::class, RecordSale::class);
+```
+
+`handle()` still registers a handler for a message everywhere; `handleOn()` wins over it on
+that one queue.
+
+Publishing to a topic nobody subscribes to is refused:
+
+```php
+$topic->publish(new OrderPlaced($id), 'oredrs');   // UnknownTopicException
+```
+
+A misspelled topic that quietly does nothing is found weeks later by somebody asking why the
+emails stopped.
+
+**Publishing is one push per subscriber, not one atomic act.** Where two subscribers must both
+hear or neither, `DatabaseQueue` is backed by a connection which has transactions, and the
+publish goes inside one:
+
+```php
+$connection->transaction(fn () => $topic->publish(new OrderPlaced($id), 'orders'));
+```
+
+#### A topic or an event?
+
+[quillstack/events](https://github.com/quillstack/events) dispatches an event to its listeners
+now, in this process, before the response goes out — and if a listener throws, the request
+knows. A topic hands the message to somebody else to do later, and the request is finished
+whatever happens next. Use an event when the answer depends on it. Use a topic when it does not.
+
 ### Time
 
 All three take a PSR-20 clock, which decides when a message is due. Without one they read the
@@ -179,7 +247,7 @@ matter, and says so.
 What matters is what each reaches. `symfony/messenger` has transports for AMQP, Redis, Doctrine,
 Amazon SQS, Beanstalkd and more, message serialization across processes, routing rules, retry
 strategies you can replace, failure transports, and a middleware stack around handling. This has
-an array, a directory of files, a database table, and a worker.
+an array, a directory of files, a database table, a worker, and topics.
 
 The database table is the one that matters for an API with more than one instance, and it needs
 no infrastructure that is not already there. Reach for Messenger when you want a broker —
