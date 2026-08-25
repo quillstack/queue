@@ -141,7 +141,7 @@ message and taking it. That is why there is no `SELECT … FOR UPDATE SKIP LOCKE
 Postgres have it, SQLite does not, and this needs neither.
 
 It is verified the only way it can be — [six processes emptying one table at
-once](tests/Unit/TestDatabaseQueue.php), asserting every message was handled exactly once. Two
+once](https://github.com/quillstack/queue/blob/main/tests/Unit/TestDatabaseQueue.php), asserting every message was handled exactly once. Two
 sequential `pop` calls would prove nothing, since the first deletes the row.
 
 **What it does not do:** a message is gone from the table the moment a worker is handed it, so a
